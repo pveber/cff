@@ -350,14 +350,17 @@ let index elt_reader =
       | 2 -> card16
       | 3 -> card24
       | 4 -> card32
-      | _ -> error "invalid offSize"
+      | n -> errorf "invalid offSize %d" n
     in
     array (count + 1) offset_reader >>= fun offset ->
+    tell >>= fun data_start ->
     let rec loop i acc =
       if i = count then
         return (List.rev acc)
       else
-        elt_reader offset.(i) offset.(i + 1) >>= fun s ->
+        let start_offset = data_start + offset.(i) - 1 in
+        let end_offset = data_start + offset.(i + 1) - 1 in
+        elt_reader start_offset end_offset >>= fun s ->
         loop (i + 1) (s :: acc)
     in
     loop 0 []
@@ -454,7 +457,7 @@ let top_dict_token =
 let top_dict _start_offset end_offset =
   let rec loop acc =
     tell >>= fun i ->
-    if i >= end_offset then return acc
+    if i >= end_offset then return (List.rev acc)
     else
       top_dict_token >>= fun t ->
       loop (t :: acc)
@@ -463,11 +466,17 @@ let top_dict _start_offset end_offset =
 
 let top_dict_index = index top_dict
 
+let string_index = index chunk
+
 let parse s =
   from_bytes s (
       header >>= fun h ->
       seek h.hdrSize >>= fun () ->
       name_index >>= fun ni ->
       top_dict_index >>= fun tdi ->
-      return (h, ni, tdi)
+      string_index >>= fun si ->
+      return (h, ni, tdi, si)
     )
+
+let test_string = "\x01\x00\x04\x01\x00\x01\x01\x01\x13\x41\x42\x43\x44\x45\x46\x2b\x54\x69\x6d\x65\x73\x2d\x52\x6f\x6d\x61\x6e\x00\x01\x01\x01\x1f\xf8\x1b\x00\xf8\x1c\x02\xf8\x1d\x03\xf8\x19\x04\x1c\x6f\x00\x0d\xfb\x3c\xfb\x6e\xfa\x7c\xfa\x16\x05\xe9\x11\xb8\xf1\x12\x00\x03\x01\x01\x08\x13\x18\x30\x30\x31\x2e\x30\x30\x37\x54\x69\x6d\x65\x73\x20\x52\x6f\x6d\x61\x6e\x54\x69\x6d\x65\x73\x00\x00\x00\x02\x01\x01\x02\x03\x0e\x0e\x7d\x99\xf9\x2a\x99\xfb\x76\x95\xf7\x73\x8b\x06\xf7\x9a\x93\xfc\x7c\x8c\x07\x7d\x99\xf8\x56\x95\xf7\x5e\x99\x08\xfb\x6e\x8c\xf8\x73\x93\xf7\x10\x8b\x09\xa7\x0a\xdf\x0b\xf7\x8e\x14"
+    

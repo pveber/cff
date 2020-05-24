@@ -54,4 +54,6 @@ type top_dict_token = [
 
 val string_of_sid : sid -> string
 
-val parse : bytes -> header * string list * top_dict_token list list
+val parse : bytes -> header * string list * top_dict_token list list * string list
+
+val test_string : string
