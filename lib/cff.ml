@@ -8,7 +8,50 @@ type header = {
 type sid = int
 
 type number = Integer of int | Real of float
+                                     
+type top_dict_operator = [
+  | `BaseFontBlend
+  | `BaseFontName
+  | `CIDCount
+  | `CIDFontRevision
+  | `CIDFontType
+  | `CIDFontVersion
+  | `CharStrings
+  | `CharstringType
+  | `Copyright
+  | `Encoding
+  | `FDArray
+  | `FDSelect
+  | `FamilyName
+  | `FontBBox
+  | `FontMatrix
+  | `FontName
+  | `FullName
+  | `ItalicAngle
+  | `Notice
+  | `PaintType
+  | `Postscript
+  | `Private
+  | `ROS
+  | `StrokeWidth
+  | `SyntheticBase
+  | `UIDBase
+  | `UnderlinePosition
+  | `UnderlineThickness
+  | `UniqueID
+  | `Version
+  | `Weight
+  | `XUID
+  | `charset
+  | `isFixedPitch
+  ]
 
+type top_dict_token = [
+  | `Integer of int
+  | `Real of string
+  | `Operator of top_dict_operator
+  ]
+                       
 type top_dict_entry = [
   | `Version of sid
   | `Notice of sid
@@ -116,6 +159,7 @@ module Reader_monad = struct
     | Read_int32 : int t
     | Seek : int -> unit t
     | Error : string -> 'a t
+    | Tell : int t
 
   let return x = Return x
   let ( >>= ) x f = Bind (x, f)
@@ -129,6 +173,7 @@ module Reader_monad = struct
   let seek i = Seek i
   let error msg = Error msg
   let errorf fmt = Printf.ksprintf (fun msg -> Error msg) fmt
+  let tell = Tell
 
   let rec from_bytes_aux : type s. bytes -> int -> s t -> int * s = fun s i m ->
     match m with
@@ -143,6 +188,7 @@ module Reader_monad = struct
     | Read_int32 -> i + 4, Bytes.get_int32_be s i |> Int32.to_int
     | Seek i -> i, ()
     | Error msg -> failwith msg
+    | Tell -> i, i
 
   let from_bytes s m =
     from_bytes_aux s 0 m
@@ -281,7 +327,8 @@ let array size elt_reader =
   in
   loop 0 []
 
-let chunk len =
+let chunk start_offset end_offset =
+  let len = end_offset - start_offset in
   let r = Bytes.create len in
   let rec loop i =
     if i = len then return (Bytes.unsafe_to_string r)
@@ -310,8 +357,7 @@ let index elt_reader =
       if i = count then
         return (List.rev acc)
       else
-        let len = offset.(i + 1) - offset.(i) in
-        elt_reader len >>= fun s ->
+        elt_reader offset.(i) offset.(i + 1) >>= fun s ->
         loop (i + 1) (s :: acc)
     in
     loop 0 []
@@ -327,7 +373,7 @@ let header =
 
 let sid = read_uint16
   
-let top_dict_entry : top_dict_entry Reader_monad.t =
+let _top_dict_entry : top_dict_entry Reader_monad.t =
   read_u8 >>= fun b0 ->
   match b0 with
   | 0 -> sid >>| fun i -> `Version i
@@ -349,7 +395,72 @@ let top_dict_entry : top_dict_entry Reader_monad.t =
   )
   | n -> errorf "invalid top dict operator code %d" n
 
-let top_dict len = array len top_dict_entry
+let top_dict_operator =
+  read_u8 >>= fun b0 ->
+  match b0 with
+  | 0 -> return `Version
+  | 1 -> return `Notice
+  | 2 -> return `FullName
+  | 3 -> return `FamilyName
+  | 4 -> return `Weight
+  | 5 -> return `FontBBox
+  | 12 -> (
+    read_u8 >>= fun b1 ->
+    match b1 with
+    | 0 -> return `Copyright
+    | 1 -> return `isFixedPitch
+    | 2 -> return `ItalicAngle
+    | 3 -> return `UnderlinePosition
+    | 4 -> return `UnderlineThickness
+    | 5 -> return `PaintType
+    | 6 -> return `CharstringType
+    | 7 -> return `FontMatrix
+    | 8 -> return `StrokeWidth
+    | 20 -> return `SyntheticBase
+    | 21 -> return `Postscript
+    | 22 -> return `BaseFontName
+    | 23 -> return `BaseFontBlend
+    | 30 -> return `ROS
+    | 31 -> return `CIDFontVersion
+    | 32 -> return `CIDFontRevision
+    | 33 -> return `CIDFontType
+    | 34 -> return `CIDCount
+    | 35 -> return `UIDBase
+    | 36 -> return `FDArray
+    | 37 -> return `FDSelect
+    | 38 -> return `FontName
+    | n -> errorf "invalid top dict operator code 12 %d" n
+  )
+  | 13 -> return `UniqueID
+  | 14 -> return `XUID
+  | 15 -> return `charset
+  | 16 -> return `Encoding
+  | 17 -> return `CharStrings
+  | 18 -> return `Private
+  | n -> errorf "invalid top dict operator code %d" n
+  
+let top_dict_token =
+  peek_byte >>= fun b0 ->
+  match b0 with
+  | '\000'..'\021' -> 
+     top_dict_operator >>| fun op -> `Operator op
+  | '\028' | '\029' | '\032'..'\254' ->
+     integer >>| fun i -> `Integer i
+  | '\030' ->
+     real >>| fun f -> `Real f
+  | '\022'..'\027' | '\031' | '\255' ->
+     error "invalid top dict token"
+
+let top_dict _start_offset end_offset =
+  let rec loop acc =
+    tell >>= fun i ->
+    if i >= end_offset then return acc
+    else
+      top_dict_token >>= fun t ->
+      loop (t :: acc)
+  in
+  loop []
+
 let top_dict_index = index top_dict
 
 let parse s =

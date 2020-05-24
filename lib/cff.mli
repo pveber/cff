@@ -9,34 +9,49 @@ type sid
 
 type number = Integer of int | Real of float
 
-type top_dict_entry = [
-  | `Version of sid
-  | `Notice of sid
-  | `Copyright of sid
-  | `FullName of sid
-  | `FamilyName of sid
-  | `Weight of sid
-  | `isFixedPitch of bool
-  | `ItalicAngle of number
-  | `UnderlinePosition of number
-  | `UnderlineThickness of number
-  | `PaintType of number
-  | `CharstringType of number
-  | `FontMatrix of number array
-  | `UniqueID of number
-  | `FontBBox of number array
-  | `StrokeWidth of number
-  | `XUID of number array
-  | `charset of number
-  | `Encoding of number
-  | `CharStrings of number
-  | `Private of number * number
-  | `SyntheticBase of number
-  | `PostScript of sid
-  | `BaseFontName of sid
-  | `BaseFontBlend of sid
+type top_dict_operator = [
+  | `BaseFontBlend
+  | `BaseFontName
+  | `CIDCount
+  | `CIDFontRevision
+  | `CIDFontType
+  | `CIDFontVersion
+  | `CharStrings
+  | `CharstringType
+  | `Copyright
+  | `Encoding
+  | `FDArray
+  | `FDSelect
+  | `FamilyName
+  | `FontBBox
+  | `FontMatrix
+  | `FontName
+  | `FullName
+  | `ItalicAngle
+  | `Notice
+  | `PaintType
+  | `Postscript
+  | `Private
+  | `ROS
+  | `StrokeWidth
+  | `SyntheticBase
+  | `UIDBase
+  | `UnderlinePosition
+  | `UnderlineThickness
+  | `UniqueID
+  | `Version
+  | `Weight
+  | `XUID
+  | `charset
+  | `isFixedPitch
+  ]
+
+type top_dict_token = [
+  | `Integer of int
+  | `Real of string
+  | `Operator of top_dict_operator
   ]
 
 val string_of_sid : sid -> string
 
-val parse : bytes -> header * string list * top_dict_entry array list
+val parse : bytes -> header * string list * top_dict_token list list
