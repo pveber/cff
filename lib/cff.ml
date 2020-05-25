@@ -30,7 +30,7 @@ type top_dict_operator = [
   | `ItalicAngle
   | `Notice
   | `PaintType
-  | `Postscript
+  | `PostScript
   | `Private
   | `ROS
   | `StrokeWidth
@@ -51,14 +51,15 @@ type top_dict_token = [
   | `Real of string
   | `Operator of top_dict_operator
   ]
-                       
+
+
 type top_dict_entry = [
-  | `Version of sid
-  | `Notice of sid
-  | `Copyright of sid
-  | `FullName of sid
-  | `FamilyName of sid
-  | `Weight of sid
+  | `Version of string
+  | `Notice of string
+  | `Copyright of string
+  | `FullName of string
+  | `FamilyName of string
+  | `Weight of string
   | `isFixedPitch of bool
   | `ItalicAngle of number
   | `UnderlinePosition of number
@@ -70,14 +71,14 @@ type top_dict_entry = [
   | `FontBBox of number array
   | `StrokeWidth of number
   | `XUID of number array
-  | `charset of number
-  | `Encoding of number
-  | `CharStrings of number
-  | `Private of number * number
+  | `charset of int
+  | `Encoding of int
+  | `CharStrings of int
+  | `Private of int * int
   | `SyntheticBase of number
-  | `PostScript of sid
-  | `BaseFontName of sid
-  | `BaseFontBlend of sid
+  | `PostScript of string
+  | `BaseFontName of string
+  | `BaseFontBlend of number array
   ]
 
 let standard_strings = [|
@@ -146,8 +147,6 @@ let standard_strings = [|
     "Semibold"
   |]
 
-let string_of_sid i = standard_strings.(i)
-
 module Reader_monad = struct
   type 'a t =
     | Return : 'a -> 'a t
@@ -155,7 +154,7 @@ module Reader_monad = struct
     | Read_byte : char t
     | Peek_byte : char t
     | Read_int16 : int t
-    | Read_uint16 : int t
+    (* | Read_uint16 : int t *)
     | Read_int32 : int t
     | Seek : int -> unit t
     | Error : string -> 'a t
@@ -167,7 +166,7 @@ module Reader_monad = struct
   let read_byte = Read_byte
   let peek_byte = Peek_byte
   let read_int16 = Read_int16
-  let read_uint16 = Read_uint16
+  (* let read_uint16 = Read_uint16 *)
   let read_int32 = Read_int32
   let read_u8 = read_byte >>| Char.code
   let seek i = Seek i
@@ -184,7 +183,7 @@ module Reader_monad = struct
     | Read_byte -> i + 1, Bytes.get s i
     | Peek_byte -> i, Bytes.get s i
     | Read_int16 -> i + 2, Bytes.get_int16_be s i
-    | Read_uint16 -> i + 2, Bytes.get_uint16_be s i
+    (* | Read_uint16 -> i + 2, Bytes.get_uint16_be s i *)
     | Read_int32 -> i + 4, Bytes.get_int32_be s i |> Int32.to_int
     | Seek i -> i, ()
     | Error msg -> failwith msg
@@ -243,11 +242,11 @@ let%test _ = integer_test "\x1c\xd8\xf0" (-10_000)
 let%test _ = integer_test "\x1d\x00\x01\x86\xa0" 100_000
 let%test _ = integer_test "\x1d\xff\xfe\x79\x60" (-100_000)
 
-let boolean =
-  integer >>= function
-  | 0 -> return false
-  | 1 -> return true
-  | _ -> error "invalid boolean"
+(* let boolean =
+ *   integer >>= function
+ *   | 0 -> return false
+ *   | 1 -> return true
+ *   | _ -> error "invalid boolean" *)
 
 type nibble_repr =
   | Digit of char
@@ -311,10 +310,10 @@ let real_test input value =
 let%test _ = real_test "\x1e\xe2\xa2\x5f" "-2.25"
 let%test _ = real_test "\x1e\x0a\x14\x05\x41\xc3\xff" "0.140541e-3"
 
-let number =
-  peek_byte >>= function
-  | '\x1e' -> real >>| fun s -> Real (float_of_string s)
-  | _ -> integer >>| fun i -> Integer i
+(* let number =
+ *   peek_byte >>= function
+ *   | '\x1e' -> real >>| fun s -> Real (float_of_string s)
+ *   | _ -> integer >>| fun i -> Integer i *)
         
   
 let array size elt_reader =
@@ -374,30 +373,8 @@ let header =
   card8 >>| fun offSize ->
   { major ; minor ; hdrSize ; offSize }
 
-let sid = read_uint16
+(* let sid = read_uint16 *)
   
-let _top_dict_entry : top_dict_entry Reader_monad.t =
-  read_u8 >>= fun b0 ->
-  match b0 with
-  | 0 -> sid >>| fun i -> `Version i
-  | 1 -> sid >>| fun i -> `Notice i
-  | 2 -> sid >>| fun i -> `FullName i
-  | 3 -> sid >>| fun i -> `FamilyName i
-  | 4 -> sid >>| fun i -> `Weight i
-  | 12 -> (
-    read_u8 >>= fun b1 ->
-    match b1 with
-    | 0 -> sid >>| fun i -> `Copyright i
-    | 1 -> boolean >>| fun b -> `isFixedPitch b
-    | 2 -> number >>| fun n -> `ItalicAngle n
-    | 3 -> number >>| fun n -> `UnderlinePosition n
-    | 4 -> number >>| fun n -> `UnderlineThickness n
-    | 5 -> number >>| fun n -> `PaintType n
-    | 6 -> number >>| fun n -> `CharstringType n
-    | _ -> error "invalid top dict operator code (second)"
-  )
-  | n -> errorf "invalid top dict operator code %d" n
-
 let top_dict_operator =
   read_u8 >>= fun b0 ->
   match b0 with
@@ -420,7 +397,7 @@ let top_dict_operator =
     | 7 -> return `FontMatrix
     | 8 -> return `StrokeWidth
     | 20 -> return `SyntheticBase
-    | 21 -> return `Postscript
+    | 21 -> return `PostScript
     | 22 -> return `BaseFontName
     | 23 -> return `BaseFontBlend
     | 30 -> return `ROS
@@ -454,6 +431,89 @@ let top_dict_token =
   | '\022'..'\027' | '\031' | '\255' ->
      error "invalid top dict token"
 
+let rec parse_top_dict_tokens string stack : (top_dict_entry list, string) result =
+  let ( >>= ) = Result.bind in
+  let k x t =
+    parse_top_dict_tokens string t >>= fun y ->
+    Ok (x :: y)
+  in
+  let number = function
+    | `Integer i -> Integer i
+    | `Real r -> Real (Float.of_string r)
+  in
+  let try_read_array_operand stack =
+    let rec loop acc stack =
+      match stack with
+      | [] | `Operator _ :: _ ->
+         let operands =
+           List.rev acc
+           |> Array.of_list
+           |> Array.map number
+         in
+         operands, stack
+      | `Integer _ as i :: t -> loop (i :: acc) t
+      | `Real _ as r :: t -> loop (r :: acc) t
+    in
+    loop [] stack
+  in
+  match stack with
+  | `Integer i :: `Operator `Version :: t -> k (`Version (string i)) t
+  | `Integer i :: `Operator `Notice :: t -> k (`Notice (string i)) t
+  | `Integer i :: `Operator `Copyright :: t -> k (`Copyright (string i)) t
+  | `Integer i :: `Operator `FullName :: t -> k (`FullName (string i)) t
+  | `Integer i :: `Operator `FamilyName :: t -> k (`FamilyName (string i)) t
+  | `Integer i :: `Operator `Weight :: t -> k (`Weight (string i)) t
+  | `Integer i :: `Operator `isFixedPitch :: t -> (
+    match i with
+    | 0 -> k (`isFixedPitch false) t
+    | 1 -> k (`isFixedPitch true) t
+    | _ -> Error "expected 0/1 operand for operator isFixedPitch"
+  )
+  | (`Integer _ | `Real _ as n) :: `Operator `ItalicAngle :: t ->
+     k (`ItalicAngle (number n)) t
+  | (`Integer _ | `Real _ as n) :: `Operator `UnderlinePosition :: t ->
+     k (`UnderlinePosition (number n)) t
+  | (`Integer _ | `Real _ as n) :: `Operator `UnderlineThickness :: t ->
+     k (`UnderlineThickness (number n)) t
+  | (`Integer _ | `Real _ as n) :: `Operator `PaintType :: t ->
+     k (`PaintType (number n)) t
+  | (`Integer _ | `Real _ as n) :: `Operator `CharstringType :: t ->
+     k (`CharstringType (number n)) t
+  | (`Integer _ | `Real _ as n1) ::
+      (`Integer _ | `Real _ as n2) ::
+        (`Integer _ | `Real _ as n3) ::
+          (`Integer _ | `Real _ as n4) ::
+            `Operator `FontMatrix :: t ->
+     k (`FontMatrix (Array.map number [| n1 ; n2 ; n3 ; n4 |])) t
+  | (`Integer _ | `Real _ as n) :: `Operator `UniqueID :: t ->
+     k (`UniqueID (number n)) t
+  | (`Integer _ | `Real _ as n1) ::
+      (`Integer _ | `Real _ as n2) ::
+        (`Integer _ | `Real _ as n3) ::
+          (`Integer _ | `Real _ as n4) ::
+            `Operator `FontBBox :: t ->
+     k (`FontBBox (Array.map number [| n1 ; n2 ; n3 ; n4 |])) t
+  | (`Integer _ | `Real _ as n) :: `Operator `StrokeWidth :: t ->
+     k (`StrokeWidth (number n)) t
+  | `Integer i :: `Operator `charset :: t -> k (`charset i) t
+  | `Integer i :: `Operator `Encoding :: t -> k (`Encoding i) t
+  | `Integer i :: `Operator `CharStrings :: t -> k (`CharStrings i) t
+  | `Integer i1 :: `Integer i2 :: `Operator `Private :: t ->
+     k (`Private (i1, i2)) t
+  | (`Integer _ | `Real _ as n) :: `Operator `SyntheticBase :: t ->
+     k (`SyntheticBase (number n)) t
+  | `Integer i :: `Operator `PostScript :: t -> k (`PostScript (string i)) t
+  | `Integer i :: `Operator `BaseFontName :: t -> k (`BaseFontName (string i)) t
+  | `Operator _ :: _ -> Error "incorrect stack"
+  | [] -> Ok []
+  | _ -> (
+    match try_read_array_operand stack with
+    | [||], _ -> Error "incorrect stack"
+    | operands, `Operator `XUID :: stack -> k (`XUID operands) stack
+    | operands, `Operator `BaseFontBlend :: stack -> k (`BaseFontBlend operands) stack
+    | _ -> Error "incorrect stack"
+  )
+
 let top_dict _start_offset end_offset =
   let rec loop acc =
     tell >>= fun i ->
@@ -468,6 +528,8 @@ let top_dict_index = index top_dict
 
 let string_index = index chunk
 
+let global_subr_index = index chunk
+
 let parse s =
   from_bytes s (
       header >>= fun h ->
@@ -475,7 +537,11 @@ let parse s =
       name_index >>= fun ni ->
       top_dict_index >>= fun tdi ->
       string_index >>= fun si ->
-      return (h, ni, tdi, si)
+      global_subr_index >>= fun gsi ->
+      let strings = Array.of_list si in
+      let string n = if n < 391 then standard_strings.(n) else strings.(n - 391) in
+      let top_dict_entries = List.map (parse_top_dict_tokens string) tdi in
+      return (h, ni, (tdi : top_dict_token list list), top_dict_entries, si, gsi)
     )
 
 let test_string = "\x01\x00\x04\x01\x00\x01\x01\x01\x13\x41\x42\x43\x44\x45\x46\x2b\x54\x69\x6d\x65\x73\x2d\x52\x6f\x6d\x61\x6e\x00\x01\x01\x01\x1f\xf8\x1b\x00\xf8\x1c\x02\xf8\x1d\x03\xf8\x19\x04\x1c\x6f\x00\x0d\xfb\x3c\xfb\x6e\xfa\x7c\xfa\x16\x05\xe9\x11\xb8\xf1\x12\x00\x03\x01\x01\x08\x13\x18\x30\x30\x31\x2e\x30\x30\x37\x54\x69\x6d\x65\x73\x20\x52\x6f\x6d\x61\x6e\x54\x69\x6d\x65\x73\x00\x00\x00\x02\x01\x01\x02\x03\x0e\x0e\x7d\x99\xf9\x2a\x99\xfb\x76\x95\xf7\x73\x8b\x06\xf7\x9a\x93\xfc\x7c\x8c\x07\x7d\x99\xf8\x56\x95\xf7\x5e\x99\x08\xfb\x6e\x8c\xf8\x73\x93\xf7\x10\x8b\x09\xa7\x0a\xdf\x0b\xf7\x8e\x14"

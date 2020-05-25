@@ -30,7 +30,7 @@ type top_dict_operator = [
   | `ItalicAngle
   | `Notice
   | `PaintType
-  | `Postscript
+  | `PostScript
   | `Private
   | `ROS
   | `StrokeWidth
@@ -52,8 +52,34 @@ type top_dict_token = [
   | `Operator of top_dict_operator
   ]
 
-val string_of_sid : sid -> string
+type top_dict_entry = [
+  | `Version of string
+  | `Notice of string
+  | `Copyright of string
+  | `FullName of string
+  | `FamilyName of string
+  | `Weight of string
+  | `isFixedPitch of bool
+  | `ItalicAngle of number
+  | `UnderlinePosition of number
+  | `UnderlineThickness of number
+  | `PaintType of number
+  | `CharstringType of number
+  | `FontMatrix of number array
+  | `UniqueID of number
+  | `FontBBox of number array
+  | `StrokeWidth of number
+  | `XUID of number array
+  | `charset of int
+  | `Encoding of int
+  | `CharStrings of int
+  | `Private of int * int
+  | `SyntheticBase of number
+  | `PostScript of string
+  | `BaseFontName of string
+  | `BaseFontBlend of number array
+  ]
 
-val parse : bytes -> header * string list * top_dict_token list list * string list
+val parse : bytes -> header * string list * top_dict_token list list * (top_dict_entry list, string) result list * string list * string list
 
 val test_string : string
