@@ -154,7 +154,6 @@ module Reader_monad = struct
     | Read_byte : char t
     | Peek_byte : char t
     | Read_int16 : int t
-    (* | Read_uint16 : int t *)
     | Read_int32 : int t
     | Seek : int -> unit t
     | Error : string -> 'a t
@@ -166,7 +165,6 @@ module Reader_monad = struct
   let read_byte = Read_byte
   let peek_byte = Peek_byte
   let read_int16 = Read_int16
-  (* let read_uint16 = Read_uint16 *)
   let read_int32 = Read_int32
   let read_u8 = read_byte >>| Char.code
   let seek i = Seek i
@@ -183,11 +181,18 @@ module Reader_monad = struct
     | Read_byte -> i + 1, Bytes.get s i
     | Peek_byte -> i, Bytes.get s i
     | Read_int16 -> i + 2, Bytes.get_int16_be s i
-    (* | Read_uint16 -> i + 2, Bytes.get_uint16_be s i *)
     | Read_int32 -> i + 4, Bytes.get_int32_be s i |> Int32.to_int
     | Seek i -> i, ()
     | Error msg -> failwith msg
     | Tell -> i, i
+
+  let rec mapl xs ~f =
+    match xs with
+    | [] -> return []
+    | h :: t ->
+       h >>= fun h ->
+       mapl t ~f >>= fun t ->
+       return (h :: t)
 
   let from_bytes s m =
     from_bytes_aux s 0 m
@@ -530,6 +535,36 @@ let string_index = index chunk
 
 let global_subr_index = index chunk
 
+let rec find_map xs ~f =
+  match xs with
+  | [] -> None
+  | h :: t -> (
+    match f h with
+    | None -> find_map t ~f
+    | Some y -> Some y
+  )
+
+let top_dict_get_charstrings_offset xs =
+  find_map xs ~f:(
+      function
+      | `CharStrings i -> Some i
+      | _ -> None
+    )
+
+let charstring top_dict =
+  match top_dict_get_charstrings_offset top_dict with
+  | Some offset ->
+     seek offset >>= fun () ->
+     index chunk >>= fun s ->
+     return (Some s)
+  | None -> return None
+
+let rec all = function
+  | [] -> Ok []
+  | Ok r :: t ->
+     Result.bind (all t) (fun t -> Ok (r :: t))
+  | Error e :: _ -> Error e
+
 let parse s =
   from_bytes s (
       header >>= fun h ->
@@ -540,8 +575,18 @@ let parse s =
       global_subr_index >>= fun gsi ->
       let strings = Array.of_list si in
       let string n = if n < 391 then standard_strings.(n) else strings.(n - 391) in
-      let top_dict_entries = List.map (parse_top_dict_tokens string) tdi in
-      return (h, ni, (tdi : top_dict_token list list), top_dict_entries, si, gsi)
+      let top_dict_entries_or_error =
+        List.map (parse_top_dict_tokens string) tdi
+        |> all
+      in
+      (
+        match top_dict_entries_or_error with
+        | Ok top_dict_entries ->
+           List.map charstring top_dict_entries
+           |> mapl ~f:return
+        | Error _ -> return []
+      ) >>= fun charstrings ->
+      return (h, ni, (tdi : top_dict_token list list), top_dict_entries_or_error, si, gsi, charstrings)
     )
 
 let test_string = "\x01\x00\x04\x01\x00\x01\x01\x01\x13\x41\x42\x43\x44\x45\x46\x2b\x54\x69\x6d\x65\x73\x2d\x52\x6f\x6d\x61\x6e\x00\x01\x01\x01\x1f\xf8\x1b\x00\xf8\x1c\x02\xf8\x1d\x03\xf8\x19\x04\x1c\x6f\x00\x0d\xfb\x3c\xfb\x6e\xfa\x7c\xfa\x16\x05\xe9\x11\xb8\xf1\x12\x00\x03\x01\x01\x08\x13\x18\x30\x30\x31\x2e\x30\x30\x37\x54\x69\x6d\x65\x73\x20\x52\x6f\x6d\x61\x6e\x54\x69\x6d\x65\x73\x00\x00\x00\x02\x01\x01\x02\x03\x0e\x0e\x7d\x99\xf9\x2a\x99\xfb\x76\x95\xf7\x73\x8b\x06\xf7\x9a\x93\xfc\x7c\x8c\x07\x7d\x99\xf8\x56\x95\xf7\x5e\x99\x08\xfb\x6e\x8c\xf8\x73\x93\xf7\x10\x8b\x09\xa7\x0a\xdf\x0b\xf7\x8e\x14"

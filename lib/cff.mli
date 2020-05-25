@@ -80,6 +80,6 @@ type top_dict_entry = [
   | `BaseFontBlend of number array
   ]
 
-val parse : bytes -> header * string list * top_dict_token list list * (top_dict_entry list, string) result list * string list * string list
+val parse : bytes -> header * string list * top_dict_token list list * (top_dict_entry list list, string) result * string list * string list * string list option list
 
 val test_string : string
